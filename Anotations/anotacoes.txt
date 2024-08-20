@@ -1,4 +1,2 @@
 ARRUMAR UM POUCO:
-0.Degrees: 6/7 cod
-6.Parser: 9/10 cod
 6.Attention: 0,98/1 style
