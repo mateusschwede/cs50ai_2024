@@ -1,36 +1,38 @@
 import csv
 import sys
-from util import Node, QueueFrontier
+from collections import deque
 
 names = {}
 people = {}
 movies = {}
 
 
-def load_data(dir):
-    with open(f"{dir}/people.csv", encoding="utf-8") as f:
+def load_data(directory):
+    with open(f"{directory}/people.csv", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            people[row["id"]] = {
+            person_id = row["id"]
+            people[person_id] = {
                 "name": row["name"],
                 "birth": row["birth"],
                 "movies": set()
             }
             if row["name"].lower() not in names:
-                names[row["name"].lower()] = {row["id"]}
+                names[row["name"].lower()] = {person_id}
             else:
-                names[row["name"].lower()].add(row["id"])
+                names[row["name"].lower()].add(person_id)
 
-    with open(f"{dir}/movies.csv", encoding="utf-8") as f:
+    with open(f"{directory}/movies.csv", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            movies[row["id"]] = {
+            movie_id = row["id"]
+            movies[movie_id] = {
                 "title": row["title"],
                 "year": row["year"],
                 "stars": set()
             }
 
-    with open(f"{dir}/stars.csv", encoding="utf-8") as f:
+    with open(f"{directory}/stars.csv", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             try:
@@ -42,12 +44,12 @@ def load_data(dir):
 
 def main():
     if len(sys.argv) > 2:
-        sys.exit("Usage: python degrees.py [dir]")
-    dir = sys.argv[1] if len(sys.argv) == 2 else "large"
+        sys.exit("Usage: python degrees.py [directory]")
+    directory = sys.argv[1] if len(sys.argv) == 2 else "large"
 
-    print("Data: loading")
-    load_data(dir)
-    print("Data: loaded")
+    print("Loading data...")
+    load_data(directory)
+    print("Data loaded.")
 
     source = person_id_for_name(input("Name: "))
     if source is None:
@@ -59,7 +61,7 @@ def main():
     path = shortest_path(source, target)
 
     if path is None:
-        print("Not connected!")
+        print("Not connected.")
     else:
         degrees = len(path)
         print(f"{degrees} degrees of separation.")
@@ -72,41 +74,29 @@ def main():
 
 
 def shortest_path(source, target):
-    start = Node(source, None, None)
-    frontier = QueueFrontier()
-    frontier.add(start)
+    start = Node(state=source, parent=None, action=None)
+    frontier = deque([start])
     explored = set()
 
-    while True:
-        if len(explored) % 100 == 0:
-            print('Actors explored: ', len(explored))
-            print('Nodes left: ', len(frontier.frontier))
+    while frontier:
+        node = frontier.popleft()
 
-        if frontier.empty():
-            print('Frontier is empty: No connection between actors')
-            print(len(explored), 'No solution found')
-            return None
+        if node.state == target:
+            path = []
+            while node.parent is not None:
+                path.append((node.action, node.state))
+                node = node.parent
+            path.reverse()
+            return path
 
-        curr_node = frontier.remove()
-        explored.add(curr_node.state)
+        explored.add(node.state)
 
-        for action, state in neighbors_for_person(curr_node.state):
+        for action, state in neighbors_for_person(node.state):
+            if state not in explored and not any(n.state == state for n in frontier):
+                child = Node(state=state, parent=node, action=action)
+                frontier.append(child)
 
-            if state == target:
-                print('Solution Found')
-                print(len(explored), 'Find solution')
-                path = []
-                path.append((action, state))
-
-                while curr_node.parent != None:
-                    path.append((curr_node.action, curr_node.state))
-                    curr_node = curr_node.parent
-                path.reverse()
-                return path
-
-            if not frontier.contains_state(state) and state not in explored:
-                new_node = Node(state, curr_node, action)
-                frontier.add(new_node)
+    return None
 
 
 def person_id_for_name(name):
@@ -115,15 +105,13 @@ def person_id_for_name(name):
         return None
     elif len(person_ids) > 1:
         print(f"Which '{name}'?")
-        for person_id in person_ids:
+        for i, person_id in enumerate(person_ids):
             person = people[person_id]
-            name = person["name"]
-            birth = person["birth"]
-            print(f"ID: {person_id}, Name: {name}, Birth: {birth}")
+            print(f" {i + 1}. {person['name']} (born {person['birth']})")
         try:
-            person_id = input("Intended person id: ")
-            if person_id in person_ids:
-                return person_id
+            index = int(input("Intended Person: ")) - 1
+            if 0 <= index < len(person_ids):
+                return person_ids[index]
         except ValueError:
             pass
         return None
@@ -140,5 +128,14 @@ def neighbors_for_person(person_id):
     return neighbors
 
 
-if __name__ == "__main__":
-    main()
+class Node:
+    def __init__(self, state, parent, action):
+        self.state = state
+        self.parent = parent
+        self.action = action
+
+    def __eq__(self, other):
+        return isinstance(other, Node) and self.state == other.state
+
+    def __hash__(self):
+        return hash(self.state)
