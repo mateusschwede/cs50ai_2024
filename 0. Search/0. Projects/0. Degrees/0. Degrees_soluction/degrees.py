@@ -139,3 +139,7 @@ class Node:
 
     def __hash__(self):
         return hash(self.state)
+
+
+if __name__ == "__main__":
+    main()
