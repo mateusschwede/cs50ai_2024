@@ -94,104 +94,145 @@ class CrosswordCreator():
         return self.backtrack(dict())
 
     def enforce_node_consistency(self):
+        # Para cada variável (posição no tabuleiro)
         for var in self.domains:
+            # Cria um conjunto com as palavras que NÃO têm o tamanho necessário
             to_remove = {word for word in self.domains[var] if len(word) != var.length}
+            # Remove essas palavras do domínio da variável
             self.domains[var] -= to_remove
 
     def revise(self, x, y):
-        revised = False
+        # Obtém a sobreposição (interseção) entre as variáveis x e y
         overlap = self.crossword.overlaps[x, y]
-
         if overlap is None:
+            # Se não há interseção, não há revisão a fazer
             return False
 
-        i, j = overlap
+        revised = False
         to_remove = set()
 
+        # Para cada palavra no domínio de x
         for word_x in self.domains[x]:
-            if not any(word_x[i] == word_y[j] for word_y in self.domains[y]):
+            # Verifica se existe ao menos uma palavra em y que seja compatível
+            found = False
+            for word_y in self.domains[y]:
+                # Garante que palavras diferentes são usadas
+                if word_x == word_y:
+                    continue
+                # Verifica se os caracteres que se cruzam coincidem
+                if word_x[overlap[0]] == word_y[overlap[1]]:
+                    found = True
+                    break
+            # Se nenhuma palavra de y satisfaz a condição, marca a palavra de x para remoção
+            if not found:
                 to_remove.add(word_x)
+                revised = True
 
-        if to_remove:
-            self.domains[x] -= to_remove
-            revised = True
-
+        # Remove do domínio de x as palavras inválidas
+        self.domains[x] -= to_remove
         return revised
 
     def ac3(self, arcs=None):
+        # Inicializa a fila de arcos com todos os pares se nenhum for passado
         if arcs is None:
-            arcs = [(x, y) for x in self.crossword.variables for y in self.crossword.neighbors(x)]
-
-        queue = list(arcs)
+            queue = [(x, y) for x in self.crossword.variables for y in self.crossword.neighbors(x)]
+        else:
+            queue = arcs.copy()
 
         while queue:
             x, y = queue.pop(0)
+            # Faz a revisão do arco (x, y)
             if self.revise(x, y):
+                # Se o domínio de x ficar vazio, o problema não tem solução
                 if not self.domains[x]:
                     return False
-                for z in self.crossword.neighbors(x) - {y}:
-                    queue.append((z, x))
-
+                # Adiciona de volta à fila todos os vizinhos de x, exceto y
+                for z in self.crossword.neighbors(x):
+                    if z != y:
+                        queue.append((z, x))
         return True
 
     def assignment_complete(self, assignment):
+        # Verifica se todas as variáveis foram atribuídas
         return set(assignment.keys()) == self.crossword.variables
 
     def consistent(self, assignment):
-        words = list(assignment.values())
-
-        # Palavras únicas
-        if len(set(words)) != len(words):
-            return False
+        # Conjunto para rastrear palavras já usadas (evitar repetições)
+        words_used = set()
 
         for var, word in assignment.items():
+            # Verifica se o comprimento da palavra está correto
             if len(word) != var.length:
                 return False
 
+            # Verifica se há duplicidade de palavras
+            if word in words_used:
+                return False
+            words_used.add(word)
+
+            # Verifica se a palavra se alinha corretamente com as vizinhas atribuídas
             for neighbor in self.crossword.neighbors(var):
-                if neighbor in assignment:
-                    i, j = self.crossword.overlaps[var, neighbor]
-                    if word[i] != assignment[neighbor][j]:
-                        return False
+                if neighbor not in assignment:
+                    continue
+                i, j = self.crossword.overlaps[var, neighbor]
+                word_neighbor = assignment[neighbor]
+                # Se os caracteres que se cruzam são diferentes, não é consistente
+                if word[i] != word_neighbor[j]:
+                    return False
 
         return True
 
     def order_domain_values(self, var, assignment):
+        # Função para contar quantos valores de vizinhos seriam descartados
         def count_ruled_out(word):
             count = 0
             for neighbor in self.crossword.neighbors(var):
                 if neighbor in assignment:
                     continue
-                overlap = self.crossword.overlaps[var, neighbor]
-                if overlap:
-                    i, j = overlap
-                    count += sum(1 for w in self.domains[neighbor] if w[j] != word[i])
+                i, j = self.crossword.overlaps[var, neighbor] or (None, None)
+                for neighbor_word in self.domains[neighbor]:
+                    # Se houver interseção e os caracteres forem diferentes, a palavra do vizinho é descartada
+                    if i is not None and word[i] != neighbor_word[j]:
+                        count += 1
             return count
 
+        # Ordena o domínio da variável com base no número de palavras que seriam descartadas nos vizinhos
         return sorted(self.domains[var], key=count_ruled_out)
 
     def select_unassigned_variable(self, assignment):
+        # Lista de variáveis ainda não atribuídas
         unassigned = [v for v in self.crossword.variables if v not in assignment]
 
+        # Ordena por:
+        # 1. Menor número de valores restantes no domínio (MRV - Minimum Remaining Values)
+        # 2. Maior número de vizinhos (grau) se houver empate
         return min(
             unassigned,
             key=lambda var: (len(self.domains[var]), -len(self.crossword.neighbors(var)))
         )
 
     def backtrack(self, assignment):
+        # Se o estado atual é completo e válido, retorna a solução
         if self.assignment_complete(assignment):
             return assignment
 
+        # Escolhe uma variável ainda não atribuída
         var = self.select_unassigned_variable(assignment)
 
+        # Tenta cada valor do domínio ordenado por menor impacto nos vizinhos
         for value in self.order_domain_values(var, assignment):
-            new_assignment = assignment.copy()
-            new_assignment[var] = value
-            if self.consistent(new_assignment):
-                result = self.backtrack(new_assignment)
+            assignment[var] = value
+
+            # Se o estado for consistente, continua o backtracking
+            if self.consistent(assignment):
+                result = self.backtrack(assignment)
                 if result is not None:
                     return result
 
+            # Se não der certo, desfaz a atribuição
+            del assignment[var]
+
+        # Se nenhuma atribuição funcionar, retorna None
         return None
 
 
